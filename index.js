@@ -60,6 +60,34 @@ app.post('/jobs', async (req, res) => {
     res.send(result);
 })
 
+app.get('/jobs/:id', async (req, res) => {
+    const job = await jobs.findOne({ _id: new ObjectId(req.params.id) });
+    if (!job) {
+        return res.status(404).send({ message: "Job not found" });
+    }
+    res.send(job);
+})
+
+app.patch('/jobs/:id', async (req, res) => {
+    const { _id, ...updates } = req.body;
+    const result = await jobs.updateOne(
+        { _id: new ObjectId(req.params.id) },
+        { $set: updates }
+    );
+    if (!result.matchedCount) {
+        return res.status(404).send({ message: "Job not found" });
+    }
+    res.send(result);
+})
+
+app.delete('/jobs/:id', async (req, res) => {
+    const result = await jobs.deleteOne({ _id: new ObjectId(req.params.id) });
+    if (!result.deletedCount) {
+        return res.status(404).send({ message: "Job not found" });
+    }
+    res.send(result);
+})
+
 
 app.listen(PORT, () => {
   console.log(`server is running on PORT ${PORT}`);
