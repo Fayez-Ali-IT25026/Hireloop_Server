@@ -119,10 +119,44 @@ app.get(`/jobs/:id`, async (req, res) => {
 
 
 app.post('/applications', async (req, res) => {
-    const application = req.body;
+    const now = new Date().toISOString();
+
+    // Fill in the lifecycle fields the client may leave out so every
+    // document in `applications` ends up with the same shape.
+    const application = {
+        status: "applied",
+        archived: false,
+        appliedAt: now,
+        updatedAt: now,
+        ...req.body,
+    };
+
     const result = await applications.insertOne(application);
     res.send(result);
 })
+
+app.get('/applications', async (req, res) => {
+
+    const query = {};
+
+    if (req.query.applicantId) {
+        query.userId = req.query.applicantId;
+    }
+
+    if (req.query.jobId) {
+        query.jobId = req.query.jobId;
+    }
+
+    // Newest applications first.
+    const cursor = applications.find(query).sort({ appliedAt: -1 });
+    const result = await cursor.toArray();
+    res.send(result);
+})
+
+
+
+
+
 
 
 
