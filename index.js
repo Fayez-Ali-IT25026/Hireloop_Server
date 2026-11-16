@@ -34,7 +34,7 @@ const connectedClient = await connectToMongoDB()
 const db = connectedClient.db('hireloop');
 const users = db.collection('user');
 const jobs = db.collection("jobs");
-
+const applications = db.collection("applications");
 
 app.get("/", (req, res) => {
   res.send("Server running fine");
@@ -47,6 +47,21 @@ app.get('/users', async (req, res) => {
     const result = await cursor.toArray();
     res.send(result);
 })
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 // app.get('/jobs', async (req, res) => {
 //     const cursor = jobs.find();
@@ -81,6 +96,35 @@ app.get('/jobs', async (req, res) => {
     const result = await cursor.toArray();
     res.send(result);
 })
+
+
+
+
+
+
+
+
+
+
+app.get(`/jobs/:id`, async (req, res) => {
+    const id = req.params.id;
+    const query = { _id: new ObjectId(id) };
+    const result = await jobs.findOne(query);
+    res.send(result);
+})
+
+
+
+
+
+
+app.post('/applications', async (req, res) => {
+    const application = req.body;
+    const result = await applications.insertOne(application);
+    res.send(result);
+})
+
+
 
 
 
