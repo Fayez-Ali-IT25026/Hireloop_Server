@@ -2,6 +2,10 @@ import express from "express";
 import { MongoClient, ObjectId } from "mongodb";
 import 'dotenv/config'
 import cors from 'cors'
+// CHANGE: import Stripe here.
+// WHY: this file called stripe.checkout.sessions.retrieve() but never created a
+// Stripe client, so /payments/checkout-verify crashed with a 500 every time.
+import Stripe from 'stripe'
 
 
 const app = express();
@@ -36,6 +40,10 @@ const users = db.collection('user');
 const jobs = db.collection("jobs");
 const applications = db.collection("applications");
 const payments = db.collection("payments");
+
+// CHANGE: create the Stripe client once, next to the database collections.
+// WHY: it needs STRIPE_SECRET_KEY from .env (same key your Next app uses).
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 
 
@@ -86,6 +94,9 @@ app.get('/jobs', async (req, res) => {
         if (req.query.category) {
             query.category = req.query.category;
         }
+         if (req.query.recruiterId) {
+            query.recruiterId = req.query.recruiterId;
+        }
         if (req.query.search) {
             query.$or = [
                 { title: { $regex: req.query.search, $options: 'i' } },
@@ -110,12 +121,9 @@ app.get('/jobs', async (req, res) => {
 
 
 
-app.get(`/jobs/:id`, async (req, res) => {
-    const id = req.params.id;
-    const query = { _id: new ObjectId(id) };
-    const result = await jobs.findOne(query);
-    res.send(result);
-})
+// CHANGE: removed this duplicate GET /jobs/:id route.
+// WHY: Express uses the first matching route, so this one (no 404 handling)
+// shadowed the real one below and returned null for missing jobs.
 
 
 
@@ -178,26 +186,40 @@ app.post('/payments/checkout-verify', async (req, res) => {
         return res.send({ success: false, message: 'Session ID is required' });
     }
 
-    const {
-        status,
-        payment_status,
-        customer_email,
-        metadata,
-        payment_intent,
-    } = await stripe.checkout.sessions.retrieve(sessionId);
+    // CHANGE: wrapped the whole route in try/catch.
+    // WHY: a bad session id or a Stripe error used to crash the request with an
+    // empty 500. Now the client gets a readable message.
+    try {
+        const {
+            status,
+            payment_status,
+            customer_email,
+            metadata,
+            payment_intent,
+        } = await stripe.checkout.sessions.retrieve(sessionId);
 
-    // 1. is used new session 
-    // 2. check is the session id for the currently logged in user
-    // 3. insert sessionId into the payment Collection
-    // 4. update user information as premium user
+        // 1. is used new session 
+        // 2. check is the session id for the currently logged in user
+        // 3. insert sessionId into the payment Collection
+        // 4. update user information as premium user
 
-    if (status === 'complete' && payment_status === 'paid') {
+        if (status !== 'complete' || payment_status !== 'paid') {
+            return res.send({ success: false, message: 'Payment verification failed' });
+        }
+
+        // CHANGE: stop early when the session has no userId in its metadata.
+        // WHY: new ObjectId(undefined) threw, so the request 500'd after Stripe
+        // had already taken the money.
+        if (!metadata?.userId) {
+            return res.status(400).send({ success: false, message: 'Missing userId in session metadata' });
+        }
 
         const sessionQuery = { sessionId };
         const existingPayment = await payments.findOne(sessionQuery);
         if (existingPayment) {
             return res.send({ success: false, message: 'Payment already verified' });
         }
+
         const payment = {
             sessionId,
             status,
@@ -222,10 +244,19 @@ app.post('/payments/checkout-verify', async (req, res) => {
             query,
             updatedDoc
         );
+
+        // CHANGE: report a missing user instead of a silent success.
+        // WHY: updateOne matched nothing when the id was unknown, but the route
+        // still answered success: true.
+        if (updateResult.matchedCount === 0) {
+            return res.status(404).send({ success: false, message: 'User not found' });
+        }
+
         res.send({ success: true, result, updateResult });
-        return
+    } catch (error) {
+        console.error('Payment verification failed:', error.message);
+        res.status(500).send({ success: false, message: 'Payment verification failed' });
     }
-    res.send({ success: false, message: 'Payment verification failed' });
 })
 
 
